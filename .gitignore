@@ -122,3 +122,9 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+google-calendar/
+
+credentials.json
+
+token.json
