@@ -1,0 +1,2 @@
+#!/bin/zsh
+./google-calendar/bin/python3 main.py

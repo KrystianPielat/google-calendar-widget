@@ -2,7 +2,8 @@ from __future__ import print_function
 
 import datetime
 import os.path
-import sys
+import logging
+import pytz
 
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -15,10 +16,35 @@ from googleapiclient.discovery import build
 
 class CalendarHandler:
     def __init__(self) -> None:
-        self.creds = self.auth()
-        self.service = build("calendar", "v3", credentials=self.creds)
-        self.now = datetime.datetime.now()
+        self.logger = self._logger_init()
+        # tz = pytz.timezone('Europe/Madrid')
+        self.now = datetime.datetime.now() # TODO Timedelta bcs i didnt set the timezone correctly
         self.tomorrow = datetime.datetime.now() + datetime.timedelta(days=1)
+        self.logger.info("Running.")
+
+    def _logger_init(self):
+        logger = logging.getLogger()
+        # logger.setLevel(logging.ERROR)
+        formatter = logging.Formatter(
+            "%(asctime)s | %(levelname)s | %(message)s", "%m-%d-%Y %H:%M:%S"
+        )
+
+        # stdout_handler = logging.StreamHandler(sys.stdout)
+        # stdout_handler.setLevel(logging.INFO)
+        # stdout_handler.setFormatter(formatter)
+
+        fh_err = logging.FileHandler("logs.log")
+        fh_err.setLevel(logging.ERROR)
+        fh_err.setFormatter(formatter)
+
+        fh_info = logging.FileHandler("logs.log")
+        fh_info.setLevel(logging.INFO)
+        fh_info.setFormatter(formatter)
+
+        logger.addHandler(fh_info)
+        logger.addHandler(fh_err)
+
+        return logger
 
     def auth(self):
         SCOPES = ["https://www.googleapis.com/auth/calendar.readonly"]
@@ -38,10 +64,14 @@ class CalendarHandler:
                 # Save the credentials for the next run
                 with open("token.json", "w") as token:
                     token.write(creds.to_json())
-            return creds
-        except:
-            print("failed to authenticate")
-            return None
+
+            self.creds = creds
+            self.service = build("calendar", "v3", credentials=self.creds)
+
+            return True
+        except Exception as e:
+            self.logger.error("Authentication: " + str(e))
+            return False
 
     def get_calendars(self):
         try:
@@ -49,8 +79,9 @@ class CalendarHandler:
                 cal["id"]
                 for cal in self.service.calendarList().list().execute().get("items", [])
             ]
-        except:
-            print("Error getting calendars")
+        except Exception as e:
+            self.logger.error("get_calendars: " + str(e))
+            return None
 
     def get_events_for_calendar(self, cal_id):
         try:
@@ -66,8 +97,10 @@ class CalendarHandler:
                 )
                 .execute()
             )
-        except:
-            print("Failed to retrieve events for calendar: ", cal_id)
+        except Exception as e:
+            self.logger.error(
+                "get_events_for_calendar, cal_id = {}: {}".format(cal_id, str(e))
+            )
         if not events_res.get("items", []):
             return None
         cal_events = [
@@ -78,7 +111,7 @@ class CalendarHandler:
         output = []
         for event in cal_events:
             time = datetime.datetime.strptime(
-                event["start"]["dateTime"], "%Y-%m-%dT%H:%M:%S+01:00"
+                event["start"]["dateTime"], "%Y-%m-%dT%H:%M:%S+02:00"
             )
             if time < self.now:
                 continue
@@ -91,8 +124,9 @@ class CalendarHandler:
         return output
 
     def get_all_events(self):
-
         calendars = self.get_calendars()
+        if not calendars:
+            return None
         events = []
         for cal_id in calendars:
             cal_events = self.get_events_for_calendar(cal_id)
@@ -100,11 +134,6 @@ class CalendarHandler:
                 events.extend(cal_events)
 
         return events
-
-        # except HttpError:
-        # print("Error")
-        # except ServerNotFoundError:
-        # return
 
     def get_closest_event(self):
         events = self.get_all_events()
@@ -118,13 +147,20 @@ class CalendarHandler:
 
 
 def main():
+
     handler = CalendarHandler()
-    event = handler.get_closest_event()
-    if event:
-        print(CalendarHandler.format_event(event))
+    try:
+        handler.auth()
+        event = handler.get_closest_event()
+        if event:
+            print(CalendarHandler.format_event(event))
+            return
+        print("None")
         return
-    print("")
-    return
+    except Exception as e:
+        handler.logger.error(str(e))
+        print("Err")
+
 
 if __name__ == "__main__":
     main()
