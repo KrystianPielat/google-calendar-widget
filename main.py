@@ -4,34 +4,25 @@ import datetime
 import os.path
 import logging
 import pytz
-
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 
-# from googleapiclient.errors import HttpError
-# from httplib2.error import ServerNotFoundError
-
-
 class CalendarHandler:
     def __init__(self) -> None:
         self.logger = self._logger_init()
-        # tz = pytz.timezone('Europe/Madrid')
-        self.now = datetime.datetime.now() # TODO Timedelta bcs i didnt set the timezone correctly
-        self.tomorrow = datetime.datetime.now() + datetime.timedelta(days=1)
+        tz = pytz.timezone('Europe/Madrid')
+        self.now = datetime.datetime.now(tz)
+        self.tomorrow = self.now + datetime.timedelta(days=1)
         self.logger.info("Running.")
 
     def _logger_init(self):
         logger = logging.getLogger()
-        # logger.setLevel(logging.ERROR)
+        logger.setLevel(logging.INFO)
         formatter = logging.Formatter(
             "%(asctime)s | %(levelname)s | %(message)s", "%m-%d-%Y %H:%M:%S"
         )
-
-        # stdout_handler = logging.StreamHandler(sys.stdout)
-        # stdout_handler.setLevel(logging.INFO)
-        # stdout_handler.setFormatter(formatter)
 
         fh_err = logging.FileHandler("logs.log")
         fh_err.setLevel(logging.ERROR)
@@ -51,7 +42,7 @@ class CalendarHandler:
         creds = None
         if os.path.exists("token.json"):
             creds = Credentials.from_authorized_user_file("token.json", SCOPES)
-        # If there are no (valid) credentials available, let the user log in.
+
         try:
             if not creds or not creds.valid:
                 if creds and creds.expired and creds.refresh_token:
@@ -61,7 +52,6 @@ class CalendarHandler:
                         "credentials.json", SCOPES
                     )
                     creds = flow.run_local_server(port=0)
-                # Save the credentials for the next run
                 with open("token.json", "w") as token:
                     token.write(creds.to_json())
 
@@ -89,8 +79,8 @@ class CalendarHandler:
                 self.service.events()
                 .list(
                     calendarId=cal_id,
-                    timeMin=self.now.isoformat() + "Z",
-                    timeMax=self.tomorrow.isoformat() + "Z",
+                    timeMin=self.now.isoformat(),
+                    timeMax=self.tomorrow.isoformat(),
                     maxResults=10,
                     singleEvents=True,
                     orderBy="startTime",
@@ -101,25 +91,24 @@ class CalendarHandler:
             self.logger.error(
                 "get_events_for_calendar, cal_id = {}: {}".format(cal_id, str(e))
             )
+            return None
+
         if not events_res.get("items", []):
             return None
+
         cal_events = [
             event_res
             for event_res in events_res.get("items", [])
             if "dateTime" in event_res["start"]
         ]
         output = []
+
         for event in cal_events:
-            time = datetime.datetime.strptime(
-                event["start"]["dateTime"], "%Y-%m-%dT%H:%M:%S+02:00"
-            )
+            time = datetime.datetime.fromisoformat(event["start"]["dateTime"])
             if time < self.now:
                 continue
-            summary = (
-                (event["summary"][:10] + "..")
-                if len(event["summary"]) > 10
-                else event["summary"]
-            )
+            summary = event.get("summary", "No Summary")  # Use a default value if 'summary' is missing
+            summary = (summary[:10] + "..") if len(summary) > 10 else summary
             output.append((summary, time))
         return output
 
@@ -145,9 +134,7 @@ class CalendarHandler:
     def format_event(event):
         return "{} {}".format(event[0], event[1].strftime("%H:%M"))
 
-
 def main():
-
     handler = CalendarHandler()
     try:
         handler.auth()
@@ -156,11 +143,10 @@ def main():
             print(CalendarHandler.format_event(event))
             return
         print("None")
-        return
     except Exception as e:
         handler.logger.error(str(e))
         print("Err")
 
-
 if __name__ == "__main__":
     main()
+
